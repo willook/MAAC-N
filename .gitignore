@@ -1,8 +1,13 @@
+# nohup
+nohup*
+
 # Repo Specific
 models
 fig_data
 notebooks
 multi_run*
+baselines
+multiagent
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
