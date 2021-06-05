@@ -10,12 +10,14 @@ from utils.make_env import make_env
 from utils.buffer import ReplayBuffer
 from utils.env_wrappers import SubprocVecEnv, DummyVecEnv
 from algorithms.attention_sac import AttentionSAC
+from wrapper import ObservationStack
 
-
-def make_parallel_env(env_id, n_rollout_threads, seed):
+def make_parallel_env(env_id, n_rollout_threads, seed, n_stack):
     def get_env_fn(rank):
         def init_env():
             env = make_env(env_id, discrete_action=True)
+            if n_stack != 1:
+                env = ObservationStack(env, n_stack)
             env.seed(seed + rank * 1000)
             np.random.seed(seed + rank * 1000)
             return env
@@ -26,6 +28,8 @@ def make_parallel_env(env_id, n_rollout_threads, seed):
         return SubprocVecEnv([get_env_fn(i) for i in range(n_rollout_threads)])
 
 def run(config):
+    if config.use_gpu:
+        os.environ["CUDA_VISIBLE_DEVICES"] = config.gpu
     model_dir = Path('./models') / config.env_id / config.model_name
     if not model_dir.exists():
         run_num = 1
@@ -45,7 +49,7 @@ def run(config):
 
     torch.manual_seed(run_num)
     np.random.seed(run_num)
-    env = make_parallel_env(config.env_id, config.n_rollout_threads, run_num)
+    env = make_parallel_env(config.env_id, config.n_rollout_threads, run_num, config.n_stack)
     model = AttentionSAC.init_from_env(env,
                                        tau=config.tau,
                                        pi_lr=config.pi_lr,
@@ -65,6 +69,9 @@ def run(config):
                                         ep_i + 1 + config.n_rollout_threads,
                                         config.n_episodes))
         obs = env.reset()
+        #print("len(obs)", len(obs)) # n_rollout_threads
+        #print("obs[0].shape", obs[0].shape) # n_agents
+        #print("obs[0][0].shape", obs[0][0].shape) # states * n_stack
         model.prep_rollouts(device='cpu')
 
         for et_i in range(config.episode_length):
@@ -139,6 +146,8 @@ if __name__ == '__main__':
     parser.add_argument("--gamma", default=0.99, type=float)
     parser.add_argument("--reward_scale", default=100., type=float)
     parser.add_argument("--use_gpu", action='store_true')
+    parser.add_argument("--n_stack", default=1, type=int)
+    parser.add_argument("--gpu", default="0", type=str) 
 
     config = parser.parse_args()
 
